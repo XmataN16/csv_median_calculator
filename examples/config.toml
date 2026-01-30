@@ -1,5 +1,5 @@
-[example]
-value = 42
-
-[app]
-name = "csv_median_calculator"
+[main]
+input = 'examples/input'
+# output intentionally left empty -> defaults to './output' next to exe
+# output = 'examples/output'
+filename_mask = ['level', 'trade']

@@ -1,0 +1,71 @@
+# === Build outputs ===
+/build/
+/bin/
+/obj/
+/Debug/
+/Release/
+
+# CMake files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+install_manifest.txt
+compile_commands.json
+
+# Visual Studio
+.vs/
+*.vcxproj.user
+*.vcxproj.filters
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.VC.opendb
+ipch/
+*.log
+
+# Visual Studio Code settings
+.vscode/
+
+# User-specific files
+*.user
+*.userosscache
+*.suo
+
+# Windows thumbnails / system files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# vcpkg build artifacts (если по ошибке появляются)
+/vcpkg_installed/
+/installed/
+
+# C++ temporary files
+*.obj
+*.o
+*.lib
+*.dll
+*.exe
+*.pdb
+
+# Generated examples copied by CMake (если используешь copy_directory)
+build/**/examples/
+# или если предпочитаешь не коммитить скопированные ресурсы:
+# /build/examples/
+
+# Third-party vendored binaries (если ты собираешься хранить только исходники)
+third_party/*/lib/
+third_party/*/bin/
+
+# macOS
+.DS_Store
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# Secrets / local config (не коммитить пароли и ключи)
+# Если хочешь иметь пример конфига — хранить examples/config.example.toml,
+# а реальные ~/.config или examples/config.toml игнорировать:
+examples/config.toml

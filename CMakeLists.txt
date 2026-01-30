@@ -15,16 +15,32 @@ endif()
 # Boost.Program_options обычно поставляется как пакет через vcpkg (не header-only)
 find_package(Boost 1.70 REQUIRED COMPONENTS program_options)
 if(NOT Boost_FOUND)
-  message(FATAL_ERROR "Boost not found. Install boost-program-options via vcpkg.")
+  message(FATAL_ERROR "Boost not found. Install Boost (program_options) or use vcpkg.")
 endif()
 
-# Используем find_package для spdlog и tomlplusplus (vcpkg предоставляет конфигурационные файлы)
-find_package(spdlog CONFIG REQUIRED)
-find_package(tomlplusplus CONFIG REQUIRED)
+# ----- FetchContent for header-only libs (spdlog, tomlplusplus) -----
+include(FetchContent)
 
-# Sources
+FetchContent_Declare(
+  spdlog
+  GIT_REPOSITORY https://github.com/gabime/spdlog.git
+  GIT_TAG v1.11.0
+)
+FetchContent_MakeAvailable(spdlog)
+
+FetchContent_Declare(
+  tomlplusplus
+  GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
+  GIT_TAG v3.4.0
+)
+FetchContent_MakeAvailable(tomlplusplus)
+
+# ----- Sources -----
 add_executable(csv_median_calculator
   src/main.cpp
+  src/config_parser.hpp
+  src/csv_reader.hpp
+  src/median_calculator.hpp
 )
 
 # Link libraries
