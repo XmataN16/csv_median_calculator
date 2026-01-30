@@ -1,0 +1,5 @@
+[example]
+value = 42
+
+[app]
+name = "csv_median_calculator"
