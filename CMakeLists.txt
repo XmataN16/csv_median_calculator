@@ -61,7 +61,8 @@ add_custom_command(TARGET csv_median_calculator POST_BUILD
 
 
 if(MSVC)
-  target_compile_options(csv_median_calculator PRIVATE /W4 /permissive-)
+  # /utf-8 заставляет MSVC читать исходные файлы как UTF-8
+  target_compile_options(csv_median_calculator PRIVATE /W4 /permissive- /utf-8)
 else()
   target_compile_options(csv_median_calculator PRIVATE -Wall -Wextra -Wpedantic)
 endif()

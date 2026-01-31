@@ -1,14 +1,13 @@
-/**
+﻿/**
  * \file main.cpp
- * \brief Entry point for csv_median_calculator
+ * \brief Точка входа csv_median_calculator
  *
- * Responsibilities:
- *  - parse CLI args (Boost.Program_options)
- *  - parse config (toml++)
- *  - locate CSV files (std::filesystem)
- *  - read records (csv_reader)
- *  - sort by receive_ts and incrementally compute median (median_calculator)
- *  - write output CSV (only when median changes)
+ * Задачи:
+ *  - парсинг аргументов командной строки (Boost.Program_options)
+ *  - поиск и чтение конфигурации (toml++)
+ *  - сканирование директории, чтение CSV (csv_reader.hpp)
+ *  - сортировка по receive_ts и инкрементальный расчёт медианы (median_calculator.hpp)
+ *  - запись результата в CSV (только при изменении медианы)
  */
 
 #include <iostream>
@@ -20,7 +19,7 @@
 #include <iomanip>
 
 #include <boost/program_options.hpp>
-// include Boost.Accumulators headers to satisfy requirement (we use two-heaps for median).
+ // Подключаем headers Boost.Accumulators, чтобы удовлетворить требование (включён, но в текущей реализации медиана — две кучи).
 #include <boost/accumulators/accumulators.hpp>
 
 #include <spdlog/spdlog.h>
@@ -30,20 +29,60 @@
 #include "csv_reader.hpp"
 #include "median_calculator.hpp"
 
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace fs = std::filesystem;
 namespace po = boost::program_options;
 
-int main(int argc, char** argv) {
+/**
+ * \brief Возвращает директорию, где находится исполняемый файл.
+ * \return путь к директории exe или пустой путь при ошибке.
+ */
+static fs::path get_executable_dir() {
+    std::string exe_path;
+#if defined(_WIN32)
+    wchar_t buf[MAX_PATH];
+    DWORD len = GetModuleFileNameW(NULL, buf, MAX_PATH);
+    if (len == 0) return {};
+    std::wstring w(buf, buf + len);
+    exe_path.assign(w.begin(), w.end());
+#elif defined(__linux__)
+    std::vector<char> buf(4096);
+    ssize_t r = readlink("/proc/self/exe", buf.data(), (ssize_t)buf.size());
+    if (r <= 0) return {};
+    exe_path.assign(buf.data(), buf.data() + r);
+#else
+    // fallback: текущая рабочая директория
+    return fs::current_path();
+#endif
     try {
-        // ---- CLI parsing ----
+        return fs::path(exe_path).parent_path();
+    }
+    catch (...) {
+        return {};
+    }
+}
+
+int main(int argc, char** argv) 
+{
+#if defined(_WIN32)
+    // Переключаем кодовую страницу консоли на UTF-8
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
+
+    try {
+        // ---- Парсинг аргументов командной строки ----
         po::options_description desc("Allowed options");
         desc.add_options()
-            ("help,h", "show help")
-            ("config,cfg,config", po::value<std::string>(), "path to config TOML (alias: -cfg, -config)")
+            ("help,h", "показать подсказку")
+            ("config,cfg,config", po::value<std::string>(), "путь к config TOML (алиасы: -cfg, -config)")
             ;
 
-        // Support -cfg and -config as aliases: Boost PO doesn't parse duplicate names easily,
-        // so parse manually by searching argv if necessary.
         po::variables_map vm;
         po::store(po::parse_command_line(argc, argv, desc), vm);
         po::notify(vm);
@@ -53,90 +92,116 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        // Determine config path
+        // ---- Логика поиска конфигурационного файла ----
         fs::path config_path;
         if (vm.count("config")) {
             config_path = fs::path(vm["config"].as<std::string>());
-        } else if (vm.count("cfg")) {
+        }
+        else if (vm.count("cfg")) {
             config_path = fs::path(vm["cfg"].as<std::string>());
-        } else {
-            // default: config.toml in executable directory or examples/config.toml copied by CMake
-            config_path = fs::current_path() / "config.toml";
-            // If not exists, fallback to examples/config.toml (common during dev)
-            if (!fs::exists(config_path) && fs::exists(fs::current_path() / "examples" / "config.toml")) {
-                config_path = fs::current_path() / "examples" / "config.toml";
+        }
+        else {
+            // Попробуем несколько стандартных мест (robust behavior)
+            // 1) ./config.toml (cwd)
+            fs::path p1 = fs::current_path() / "config.toml";
+            if (fs::exists(p1)) {
+                config_path = p1;
+            }
+            else {
+                // 2) <exe_dir>/config.toml
+                auto exe_dir = get_executable_dir();
+                if (!exe_dir.empty()) {
+                    fs::path p2 = exe_dir / "config.toml";
+                    if (fs::exists(p2)) {
+                        config_path = p2;
+                    }
+                    else {
+                        // 3) <exe_dir>/examples/config.toml (CMake копирует examples рядом с exe)
+                        fs::path p3 = exe_dir / "examples" / "config.toml";
+                        if (fs::exists(p3)) {
+                            config_path = p3;
+                        }
+                        else {
+                            // 4) fallback: cwd/examples/config.toml (при запуске из корня проекта)
+                            config_path = fs::current_path() / "examples" / "config.toml";
+                        }
+                    }
+                }
+                else {
+                    // без exe_dir — fallback
+                    config_path = fs::current_path() / "examples" / "config.toml";
+                }
             }
         }
 
-        spdlog::info("Starting app. Using config: {}", config_path.string());
+        spdlog::info("Запуск. Использую конфиг: {}", config_path.string());
 
-        // ---- Parse config ----
+        // ---- Разбор конфигурации ----
         cfg::main_config_t config;
         auto cfg_err = cfg::parse_config(config_path, config);
         if (cfg_err) {
-            spdlog::error("Config parse error: {}", *cfg_err);
+            spdlog::error("Ошибка парсинга конфига: {}", *cfg_err);
             return 2;
         }
 
-        // If output not provided, use ./output relative to working directory
+        // Если output не задан — по умолчанию ./output (cwd)
         if (config.output_dir.empty()) {
             config.output_dir = fs::current_path() / "output";
         }
 
-        spdlog::info("Input dir: {}", config.input_dir.string());
-        spdlog::info("Output dir: {}", config.output_dir.string());
-        spdlog::info("File masks: {}", config.filename_mask.empty() ? "<all>" : fmt::format("{}", fmt::join(config.filename_mask, ",")));
+        spdlog::info("Входная директория: {}", config.input_dir.string());
+        spdlog::info("Директория вывода: {}", config.output_dir.string());
+        spdlog::info("Фильтр по именам файлов: {}", config.filename_mask.empty() ? "<все>" : fmt::format("{}", fmt::join(config.filename_mask, ",")));
 
-        // ---- Read CSV files ----
+        // ---- Чтение CSV файлов ----
         std::vector<csv::record_t> records;
         auto read_err = csv::read_csv_files(config.input_dir, config.filename_mask, records);
         if (read_err) {
-            spdlog::error("Failed to read CSV files: {}", *read_err);
+            spdlog::error("Ошибка чтения CSV: {}", *read_err);
             return 3;
         }
 
-        spdlog::info("Total records read: {}", records.size());
+        spdlog::info("Прочитано записей: {}", records.size());
         if (records.empty()) {
-            spdlog::warn("No records to process. Exiting.");
+            spdlog::warn("Нет записей для обработки. Завершение.");
             return 0;
         }
 
-        // ---- Sort by receive_ts (stable sort) ----
+        // ---- Стабильная сортировка по receive_ts (и tie-breaker по файлу/строке) ----
         std::stable_sort(records.begin(), records.end(),
-                         [](auto const& a, auto const& b) {
-                             if (a.receive_ts != b.receive_ts) return a.receive_ts < b.receive_ts;
-                             // keep input order if timestamps equal; use file+line to decide
-                             if (a.source_file != b.source_file) return a.source_file < b.source_file;
-                             return a.line_no < b.line_no;
-                         });
+            [](auto const& a, auto const& b) {
+                if (a.receive_ts != b.receive_ts) return a.receive_ts < b.receive_ts;
+                if (a.source_file != b.source_file) return a.source_file < b.source_file;
+                return a.line_no < b.line_no;
+            });
 
-        // ---- Prepare output directory & file ----
+        // ---- Подготовка выходного файла ----
         try {
             fs::create_directories(config.output_dir);
-        } catch (const std::exception& ex) {
-            spdlog::error("Failed to create output directory {}: {}", config.output_dir.string(), ex.what());
+        }
+        catch (const std::exception& ex) {
+            spdlog::error("Не удалось создать директорию вывода {}: {}", config.output_dir.string(), ex.what());
             return 4;
         }
+
         auto out_path = config.output_dir / "median_result.csv";
         std::ofstream ofs(out_path, std::ios::out | std::ios::trunc);
         if (!ofs.is_open()) {
-            spdlog::error("Failed to open output file: {}", out_path.string());
+            spdlog::error("Не удалось открыть файл для записи: {}", out_path.string());
             return 5;
         }
-        // write header
         ofs << "receive_ts;price_median\n";
 
-        // ---- Incremental median calculation ----
+        // ---- Инкрементальный расчёт медианы ----
         median::median_calculator calc;
-        // we store formatted median string (8 decimal places) to decide when it changed
         std::optional<std::string> last_median_str;
 
         auto format_price = [](long double v) -> std::string {
             std::ostringstream ss;
             ss.setf(std::ios::fixed);
-            ss << std::setprecision(8) << (double)v; // cast to double for stable formatting
+            ss << std::setprecision(8) << (double)v;
             return ss.str();
-        };
+            };
 
         std::size_t changes_written = 0;
         for (const auto& rec : records) {
@@ -145,18 +210,18 @@ int main(int argc, char** argv) {
             if (!med_opt) continue;
             auto med_str = format_price(*med_opt);
             if (!last_median_str || (*last_median_str != med_str)) {
-                // write
                 ofs << rec.receive_ts << ";" << med_str << "\n";
                 last_median_str = med_str;
                 ++changes_written;
             }
         }
         ofs.close();
-        spdlog::info("Written {} median-change lines to {}", changes_written, out_path.string());
-        spdlog::info("Done.");
+        spdlog::info("Записано изменений медианы: {} в {}", changes_written, out_path.string());
+        spdlog::info("Готово.");
         return 0;
-    } catch (const std::exception& ex) {
-        spdlog::critical("Unhandled exception: {}", ex.what());
+    }
+    catch (const std::exception& ex) {
+        spdlog::critical("Необработанное исключение: {}", ex.what());
         return 10;
     }
 }
