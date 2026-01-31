@@ -1,44 +1,50 @@
-csv_median_calculator
+# csv_median_calculator
 
-Лёгкое консольное приложение на C++23 для инкрементального расчёта медианы цен из CSV-файлов с биржевыми данными.
-Реализовано с использованием CMake, Boost (Program_options, Accumulators), toml++ и spdlog.
+Консольное приложение на **C++23** для инкрементального расчёта медианы цен из CSV-файлов с биржевыми данными.  
+Реализовано с использованием **CMake**, **Boost** (Program_options, Accumulators), `toml++` и `spdlog`. Проект читает CSV, сортирует записи по `receive_ts`, вычисляет медиану по мере поступления новых значений и записывает в выходной CSV только те строки, в которых медиана изменилась.
 
-Оглавление
+---
 
-1. Описание
+## Содержание
 
-2. Требования
+- Краткое описание  
+- Требования  
+- Структура проекта  
+- Формат конфигурации (config.toml)  
+- Пример входных CSV  
+- Сборка  
+- Запуск  
+- Алгоритм медианы  
+- Поведение и ограничения  
+- Отладка  
+- Дальнейшие улучшения  
 
-3. Структура проекта
+---
 
-4. Конфигурация (config.toml)
+## Краткое описание
 
-5. Сборка (Windows / Visual Studio 2022, vcpkg)
+Программа:
+- считывает CSV-файлы из директории;
+- фильтрует их по маскам имён;
+- сортирует записи по `receive_ts`;
+- инкрементально вычисляет медиану цены;
+- записывает результат только при изменении медианы.
 
-6. Запуск и примеры
+---
 
-7. Алгоритм медианы и ограничения
+## Требования
 
-8. Отладка — частые проблемы и решения
+- C++23 (MSVC / GCC / Clang)
+- CMake >= 3.23
+- Boost (program_options, accumulators)
+- toml++
+- spdlog
 
-1. Описание
+---
 
-Приложение читает CSV-файлы из директории input, фильтрует их по маскам имён, сортирует записи по receive_ts и инкрементально рассчитывает медиану цен. В выходной CSV-файл записывается строка только в тот момент, когда медиана меняется.
+## Структура проекта
 
-2. Требования
-
-C++ компилятор, поддерживающий C++23 (MSVC / Visual Studio 2022 в примерах)
-
-CMake >= 3.23
-
-Boost (Program_options, Accumulators) — желательно через vcpkg или системный пакет
-
-Internet (для FetchContent загрузки spdlog и toml++) при первой конфигурации
-
-Рекомендуется Windows 10/11 (инструкции для VS приведены ниже), но код кроссплатформенный (filesystem, std)
-
-3. Структура проекта
-
+```
 csv_median_calculator/
 ├─ CMakeLists.txt
 ├─ CMakePresets.json
@@ -51,123 +57,74 @@ csv_median_calculator/
 └─ examples/
    ├─ config.toml
    └─ input/
-       ├─ level.csv
-       └─ trade.csv
+```
 
-После сборки CMake копирует examples/ в выходную директорию рядом с exe (чтобы удобно запускать из build/...).
+---
 
-4. Конфиг (examples/config.toml)
+## Формат конфигурации (config.toml)
 
+```toml
 [main]
-input = "examples/input"        # обязательный
-# output = "examples/output"   # опционально; по умолчанию ./output рядом с exe
-filename_mask = ["level","trade"]
+input = "examples/input"
+# output = "examples/output"
+filename_mask = ["level", "trade"]
+```
 
-Пояснения:
+---
 
-─ input — путь к директории с CSV (обязателен)
+## Пример входных CSV
 
-─ output — куда записывать median_result.csv (если не указан — ./output)
+```csv
+receive_ts;price
+1716810808593627;68480.0
+```
 
-─ filename_mask — список подстрок, по которым фильтруются имена файлов. Если пустой — читаются все .csv.
+---
 
-5. Сборка
+## Сборка (Windows + VS2022)
 
-A. Быстрая инструкция (Windows + Visual Studio 2022 + vcpkg)
-
-1. Установите vcpkg и необходимые пакеты:
-# из каталога vcpkg
-.\vcpkg.exe install boost-program-options boost-accumulators:x64-windows
-# spdlog и toml++ подтягиваются FetchContent; при желании можно установить через vcpkg:
-.\vcpkg.exe install spdlog:x64-windows tomlplusplus:x64-windows
-.\vcpkg.exe integrate install   # опционально — интеграция с VS
-
-2. Конфигурация CMake (в корне проекта):
-
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
-  -DCMAKE_TOOLCHAIN_FILE="D:/vcpkg/scripts/buildsystems/vcpkg.cmake" `
-  -DCMAKE_BUILD_TYPE=Release
-
-Примечание: (Замените путь к vcpkg на свой.)
-
-3. Сборка:
+```powershell
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 ^
+  -DCMAKE_TOOLCHAIN_FILE=D:/vcpkg/scripts/buildsystems/vcpkg.cmake
 
 cmake --build build --config Release
+```
 
-4. Запуск:
+---
 
-# из корня проекта (exe в build\Release)
-.\build\Release\csv_median_calculator.exe --config examples/config.toml
-# или запустить без аргументов — программа попытается найти examples/config.toml рядом с exe
-.\build\Release\csv_median_calculator.exe
+## Запуск
 
-B. Без vcpkg (system Boost)
+```powershell
+build\Release\csv_median_calculator.exe --config examples/config.toml
+```
 
-- Установите Boost через системный пакетный менеджер (или вручную) и укажите -DBOOST_ROOT=/path/to/boost и/или -DCMAKE_PREFIX_PATH=/path/to/boost при вызове cmake.
+---
 
-- spdlog и toml++ подтянутся автоматически через FetchContent.
+## Алгоритм медианы
 
-C. CMake Presets
+Используется гибридный подход:
+- точная медиана для малых выборок;
+- потоковая оценка медианы через Boost.Accumulators (P²) для больших потоков данных.
 
-В проекте есть CMakePresets.json. Для конфигурации:
+---
 
-cmake --preset vs2022-x64-debug
-cmake --build --preset vs2022-x64-debug --config Debug
+## Поведение и ограничения
 
-6. Запуск и примеры
+- CSV должен содержать `receive_ts` и `price`
+- Разделитель `;`
+- Для очень больших файлов возможна доработка потоковой обработки
 
-- Входные CSV — разделитель ;. Ожидаются колонки receive_ts и price. Остальные колонки (exchange_ts, quantity, side и т.д.) игнорируются по логике чтения, но могут присутствовать.
+---
 
-- Output: median_result.csv с заголовком receive_ts;price_median
+## Отладка
 
-Пример запуска:
+- Для корректного отображения русского текста используйте UTF-8 и `chcp 65001`
+- В Visual Studio назначьте `csv_median_calculator` стартовым проектом
 
-./csv_median_calculator.exe --config ./examples/config.toml
+---
 
-Результат: файл output/median_result.csv (если output не указан) или в директории, заданной в конфиге.
+## Дальнейшие улучшения
 
-7. Алгоритм медианы и ограничения
-
-Реализован гибридный алгоритм:
-
-- Сначала приложение собирает значения в небольшой буфер (по умолчанию seed_threshold = 64) и вычисляет точную медиану (через nth_element) — это обеспечивает 100% точность для маленьких наборов.
-
-- После достижения порога буфер «перекармливается» в Boost.Accumulators с p_square_quantile (P²) — потоковый алгоритм, который экономит память и поддерживает инкрементальное добавление новых значений.
-
-Причина: Boost.Accumulators реализует P² (оценка квантиля), который экономит память, но для малых выборок может давать приближённую оценку. Гибридный подход сочетает точность и эффективность.
-
-Если вам нужна строго точная медиана при любых объёмах — можно легко заменить на реализацию «две кучи» (точная, O(log n) на вставку) или добавить конфиг-переключатель (опция на будущее).
-
-8. Отладка — частые проблемы и решения
-
-1) Кракозябры (русский текст в консоли)
-
-- Убедитесь, что исходники сохранены в UTF-8 и MSVC компилирует с флагом /utf-8 (в CMakeLists.txt добавлен /utf-8 в target_compile_options для MSVC).
-
-- В коде установлены SetConsoleOutputCP(CP_UTF8); SetConsoleCP(CP_UTF8);.
-
-- Можно также выполнить chcp 65001 перед запуском.
-
-2) VS запускает ALL_BUILD вместо exe
-
-- Правый клик по проекту csv_median_calculator → Set as Startup Project. Или в CMake Targets выбрать target и Set as Startup.
-
-3) FetchContent vs vcpkg — конфликты
-
-Если и FetchContent и vcpkg пытаются предоставить одни и те же библиотеки, могут возникать конфликты целей. Рекомендуется:
-
-- использовать vcpkg для Boost (и опционально для spdlog/toml++) или
-
-- использовать FetchContent для заголовочных библиотек (в проекте spdlog/toml++ загружаются через FetchContent).
-
-При проблемах временно удаляйте FetchContent / используйте find_package(...) для тех библиотек, которые установлены через vcpkg.
-
-4) IntelliSense "не хватает памяти"
-
-- Boost.MPL / Accumulators тяжело нагружают IntelliSense. Включите 64-битную подсистему IntelliSense и/или увеличьте лимит памяти в настройках VS.
-
-5) Ошибки при использовании Boost.Accumulators
-
-Параметр для P² — quantile_probability. Пример инициализации: accumulator_t acc( boost::accumulators::quantile_probability = 0.5 ); 
-и извлечение boost::accumulators::p_square_quantile(acc).
-
+- Выбор алгоритма медианы через config
+- Unit-тесты
+- CI (GitHub Actions)
